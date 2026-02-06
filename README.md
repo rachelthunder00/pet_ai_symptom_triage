@@ -69,6 +69,30 @@ Final Response (TriageResponse JSON)
 
 ---
 
+## Design Decisions
+
+### Why two agents instead of one?
+
+Symptom triage and general Q&A have fundamentally different requirements. Triage demands deterministic, auditable behavior -- every case must go through red flag checks and risk assessment in a fixed order. General Q&A benefits from flexibility -- the LLM should decide whether to search the knowledge base, look up breed info, or answer directly. A single agent cannot optimize for both, so we use two: a pipeline for triage and a ReAct agent for chat.
+
+### Why a deterministic pipeline for triage (not ReAct)?
+
+An earlier version used LangGraph's `create_react_agent` for triage, but the system prompt had to rigidly prescribe the exact tool order to ensure safety. This made it a "pseudo-ReAct" -- paying the cost of multi-turn LLM reasoning while getting none of the flexibility benefits. The pipeline approach calls each step in code (image analysis, red flag check, RAG, LLM assessment), uses only one LLM call instead of up to eight, and guarantees that safety-critical checks like red flag detection are never skipped.
+
+### Why hard-route emergencies before the LLM?
+
+Conditions like male cat urinary blockage or open-mouth breathing in cats are immediately life-threatening. Routing these through an LLM introduces latency and the risk of under-triage. The input guardrails detect these via rule-based pattern matching and return a pre-built ER template instantly, with zero LLM calls.
+
+### Why multi-layer guardrails?
+
+A single validation step cannot cover the range of failure modes in a medical AI system. Input guardrails handle scope enforcement, prompt injection, and off-topic detection in separate layers so each can be tested and maintained independently. Output guardrails enforce JSON schema compliance, content safety (no diagnosis or medication dosing), risk calibration (never downgrade severity), and length constraints for mobile UI rendering. The layered design means adding a new safety rule does not require modifying existing layers.
+
+### Why RAG with known data limitations?
+
+The vector database (18,909 records) is weighted toward FDA adverse event reports and lacks some ideal content types like differential diagnosis guides. We chose to keep RAG in the pipeline because it provides grounded, source-attributable context that pure LLM generation cannot. The RAG prompt is designed to treat retrieval results as supplementary -- when results are weak, the LLM falls back on its training knowledge rather than forcing low-relevance retrieved content into the response.
+
+---
+
 ## Project Structure
 
 ```
