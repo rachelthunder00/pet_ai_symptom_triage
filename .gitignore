@@ -1,0 +1,9 @@
+.env
+*.db
+__pycache__/
+*.pyc
+.DS_Store
+pet_triage copy/
+node_modules/
+.next/
+venv/
