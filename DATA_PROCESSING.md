@@ -452,6 +452,13 @@ All records are short, structured medical records (clinical reports, adverse eve
 - **Rich Metadata:** Extensive filtering capabilities
 - **Credibility Levels:** 80% official sources, 20% professional
 
+### Known Limitations
+
+1. **Data distribution imbalance**: Adverse event records account for 79% (15,000 / 18,909) of the dataset. This means vector similarity searches tend to return drug reaction reports disproportionately, even when the user query is about general symptoms or care guidance.
+2. **Short record length**: The average record is 183 characters (25 tokens), with clinical notes averaging only 65 characters. Short texts produce embeddings with weaker semantic signal, resulting in moderate cosine similarity scores (~0.62) and reduced retrieval precision.
+3. **Missing knowledge types**: The dataset lacks symptom-to-condition differential diagnosis references, home care and first-aid guidance, and triage decision criteria -- the types of content most valuable for a symptom triage system.
+4. **Mitigation**: The RAG prompt is designed to treat retrieved information as supplementary context rather than the sole knowledge source. When retrieval results are incomplete, the LLM falls back on its general veterinary training knowledge.
+
 ### Future Expansion
 The pipeline is designed to handle long documents (e.g., textbook chapters, medical articles > 2400 chars). When added, they will be automatically:
 - Detected and split into chunks
