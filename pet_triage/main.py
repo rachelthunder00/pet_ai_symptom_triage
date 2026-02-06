@@ -30,15 +30,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'RAG'))
 # Import from shared module (single source of truth)
 from shared.constants import SUPPORTED_CATEGORIES, RiskLevel
 from shared.red_flags import check_immediate_er
-from shared.schemas import get_fallback_response
-
 # Import from our task files
-from llm_setup import (
+from core.llm_setup import (
     get_openai_client,
     get_er_template
 )
-from input_guardrails import InputGuardrails
-from output_guardrails import OutputGuardrails
+from core.guardrails import InputGuardrails, OutputGuardrails
 
 
 # Initialize guardrails

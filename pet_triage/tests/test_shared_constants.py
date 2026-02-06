@@ -31,7 +31,7 @@ def test_symptom_categories():
     print("Testing Symptom Categories...")
     print("=" * 50)
     
-    # Test all 9 categories exist
+    # Test all 10 categories exist
     expected_categories = [
         "Toxic Ingestion & Poisoning",
         "Stomach Upset",
@@ -41,14 +41,15 @@ def test_symptom_categories():
         "Ears, Eyes, and Mouth",
         "Breathing Issues",
         "Urinary & Genital",
-        "Something Else"
+        "Something Else",
+        "General Question"
     ]
-    
+
     for cat in expected_categories:
         assert cat in [c.value for c in SymptomCategory], f"Missing category: {cat}"
         print(f"  ✓ {cat}")
-    
-    assert len(SymptomCategory) == 9, "Should have exactly 9 categories"
+
+    assert len(SymptomCategory) == 10, "Should have exactly 10 categories"
     print(f"\nTotal categories: {len(SymptomCategory)}")
     print("PASSED")
 

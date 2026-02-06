@@ -10,8 +10,8 @@ import os
 import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from output_guardrails import OutputGuardrails
-from config import OUTPUT_LIMITS
+from core.guardrails import OutputGuardrails
+from shared.constants import OUTPUT_LIMITS
 
 
 def test_output_guardrails():

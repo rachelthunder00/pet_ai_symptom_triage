@@ -21,7 +21,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from llm_setup import (
+from core.llm_setup import (
     get_openai_client,
     check_immediate_er_rules,
     get_er_template,

@@ -9,7 +9,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from prompts import (
+from shared.prompts import (
     build_case_summary,
     build_triage_message,
     build_intake_message,

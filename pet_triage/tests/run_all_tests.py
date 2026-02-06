@@ -128,7 +128,7 @@ def run_shared_module_tests():
     run_test_module("test_shared_red_flags")
     run_test_module("test_shared_schemas")
     run_test_module("test_shared_prompts")
-    run_test_module("test_shared_errors")
+    # test_shared_errors removed (shared/errors.py was unused dead code)
 
 
 def run_core_module_tests():
@@ -143,9 +143,9 @@ def run_core_module_tests():
     # Test config (should re-export from shared)
     try:
         print("\n--- Testing config.py imports ---")
-        from config import SUPPORTED_SPECIES, SUPPORTED_CATEGORIES, MODEL_CONFIG
+        from shared.constants import SUPPORTED_SPECIES, SUPPORTED_CATEGORIES, MODEL_CONFIG
         assert len(SUPPORTED_SPECIES) == 2
-        assert len(SUPPORTED_CATEGORIES) == 9
+        assert len(SUPPORTED_CATEGORIES) == 10
         print("  ✓ config.py imports work correctly")
         results.add_passed("config_imports")
     except Exception as e:
@@ -155,7 +155,7 @@ def run_core_module_tests():
     # Test prompts.py
     try:
         print("\n--- Testing prompts.py ---")
-        from prompts import get_triage_system_prompt, build_triage_message
+        from shared.prompts import get_triage_system_prompt, build_triage_message
         prompt = get_triage_system_prompt()
         assert prompt is not None and len(prompt) > 100
         print("  ✓ prompts.py works correctly")
@@ -202,10 +202,9 @@ def run_integration_tests():
         from shared.constants import RiskLevel, SymptomCategory
         from shared.red_flags import check_immediate_er
         from shared.schemas import TriageResponse, get_fallback_response
-        from config import SUPPORTED_SPECIES
-        from llm_setup import get_er_template, select_model
-        from input_guardrails import InputGuardrails
-        from output_guardrails import OutputGuardrails
+        from shared.constants import SUPPORTED_SPECIES
+        from core.llm_setup import get_er_template, select_model
+        from core.guardrails import InputGuardrails, OutputGuardrails
         
         print("  ✓ All modules imported successfully")
         

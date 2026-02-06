@@ -24,6 +24,7 @@ import re
 from typing import Dict, Any, Tuple, Optional, List
 
 # Import from shared module (single source of truth)
+from shared.schemas import get_fallback_response as _get_schema_fallback
 from shared.constants import (
     OUTPUT_LIMITS,
     RISK_LEVEL_DESCRIPTIONS as RISK_LEVELS,
@@ -376,40 +377,15 @@ class UIConstraintsGuardrail:
 class FallbackGuardrail:
     """
     Guardrail F: Safe Fallback
-    
-    Return a safe, conservative response when model output is invalid
+
+    Return a safe, conservative response when model output is invalid.
+    Uses shared.schemas.get_fallback_response() as single source of truth.
     """
-    
-    DEFAULT_FALLBACK = {
-        "risk_level": "TODAY",
-        "category": "Something Else",
-        "red_flags": [],
-        "reasoning_summary": [
-            "Unable to complete full assessment",
-            "Professional evaluation recommended"
-        ],
-        "recommended_actions": [
-            "Contact your regular veterinarian during business hours",
-            "Monitor your pet closely for any changes",
-            "If symptoms worsen, seek emergency veterinary care"
-        ],
-        "what_to_monitor": [
-            "Breathing difficulty",
-            "Collapse or weakness",
-            "Severe pain signs",
-            "Worsening of current symptoms"
-        ],
-        "follow_up_questions": [],
-        "disclaimer": "This is not a veterinary diagnosis. If symptoms worsen or you're concerned, seek veterinary care.",
-        "_is_fallback": True
-    }
-    
+
     @classmethod
     def get_fallback_response(cls, reason: str = None) -> Dict:
-        """
-        Get safe fallback response
-        """
-        response = cls.DEFAULT_FALLBACK.copy()
+        """Get safe fallback response from shared schema."""
+        response = _get_schema_fallback(reason).model_dump()
         if reason:
             response["_fallback_reason"] = reason
         return response

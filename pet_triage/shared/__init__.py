@@ -33,9 +33,6 @@ __all__ = [
     "APIResponse",
     "TriageRequest",
     "get_fallback_response",
-    # Errors (from shared.errors)
-    "ErrorCode",
-    "TriageError",
     # Red Flags (from shared.red_flags)
     "check_immediate_er",
     "check_red_flags",
@@ -64,11 +61,6 @@ def __getattr__(name):
     if name in ("TriageResponse", "APIResponse", "TriageRequest", "get_fallback_response"):
         from shared import schemas
         return getattr(schemas, name)
-    
-    # Errors
-    if name in ("ErrorCode", "TriageError"):
-        from shared import errors
-        return getattr(errors, name)
     
     # Red Flags
     if name in ("check_immediate_er", "check_red_flags", "check_text_for_red_flags"):

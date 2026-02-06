@@ -531,81 +531,6 @@ def _get_mock_vet_data(latitude: float, longitude: float, emergency_only: bool) 
     }
 
 # ============================================================
-# Combined Triage Function
-# ============================================================
-
-def triage_and_recommend(
-    symptoms: str,
-    pet_species: str = None,
-    pet_breed: str = None,
-    user_latitude: float = None,
-    user_longitude: float = None,
-    current_time: datetime = None
-) -> Dict[str, Any]:
-    """
-    Complete triage: check symptoms and recommend nearby vets if ER.
-    
-    This function combines check_red_flags and find_nearby_vets for a
-    complete emergency triage workflow.
-    
-    IMPORTANT: find_nearby_vets is ONLY called when severity is ER
-    (life-threatening emergency requiring immediate hospital visit).
-    
-    Args:
-        symptoms: Description of pet's symptoms
-        pet_species: 'dog' or 'cat'
-        pet_breed: Pet's breed
-        user_latitude: User's location latitude (required for vet search)
-        user_longitude: User's location longitude (required for vet search)
-        current_time: Current datetime (defaults to now if not provided)
-    
-    Returns:
-        Combined result with severity assessment and nearby vet recommendations
-    """
-    # Get current time
-    if current_time is None:
-        current_time = datetime.now()
-    
-    # Step 1: Check symptoms for red flags (RULE-BASED, no LLM)
-    red_flag_result = check_red_flags(symptoms, pet_species, pet_breed)
-    
-    result = {
-        "triage": red_flag_result,
-        "nearby_vets": None,
-        "timestamp": current_time.isoformat(),
-        "requires_location": False
-    }
-    
-    # Step 2: ONLY search for nearby vets if severity is ER
-    # ER = life-threatening, needs IMMEDIATE hospital visit
-    if red_flag_result["severity"] == "ER":
-        result["requires_location"] = True
-        
-        if user_latitude and user_longitude:
-            # Search for emergency vets
-            result["nearby_vets"] = find_nearby_vets(
-                latitude=user_latitude,
-                longitude=user_longitude,
-                emergency_only=True,  # Prioritize 24-hour emergency clinics
-                radius_meters=10000   # Search wider area for emergencies
-            )
-            result["message"] = "EMERGENCY: Please go to the nearest veterinary hospital immediately!"
-        else:
-            result["message"] = (
-                "EMERGENCY: This appears to be a life-threatening situation. "
-                "Please share your location so we can find the nearest emergency vet, "
-                "or call your local emergency animal hospital immediately!"
-            )
-    elif red_flag_result["severity"] == "TODAY":
-        result["message"] = (
-            "This situation requires veterinary attention today. "
-            "Please contact your regular veterinarian or an urgent care clinic."
-        )
-    
-    return result
-
-
-# ============================================================
 # Tool: Web Search (Gemini 2.0 + Google Search Grounding)
 # ============================================================
 # Uses Gemini 2.0 with Google Search for real-time information.
@@ -961,9 +886,8 @@ def get_er_template(category: str) -> Dict[str, Any]:
         Dict with complete ER triage response
     """
     # Import ER templates
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
-        from llm_setup import ER_TEMPLATES
+        from core.llm_setup import ER_TEMPLATES
         template = ER_TEMPLATES.get(category, ER_TEMPLATES.get("Something Else", {}))
     except ImportError:
         template = {}

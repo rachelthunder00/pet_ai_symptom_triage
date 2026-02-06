@@ -32,22 +32,15 @@ from langchain_core.tools import tool
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
 
-# Import existing tools (NO modifications to original files!)
-# Use aliases to avoid naming conflicts with @tool decorated functions
-from .rag_chain import ask_simple, ask_with_image, get_chain
+# Import existing tools
+# Aliases avoid naming conflicts with @tool decorated functions (used by PetHealthAgent)
+from .rag_chain import ask
 from .tools import (
     check_red_flags as _check_red_flags_func,
-    check_red_flags_for_agent,
     find_nearby_vets as _find_nearby_vets_func,
-    triage_and_recommend,
     web_search as _web_search_func,
-    # New triage tools
-    generate_triage_response as _generate_triage_response_func,
-    generate_triage_response_for_agent,
-    request_followup_questions as _request_followup_questions_func,
-    request_followup_for_agent,
     get_er_template as _get_er_template_func,
-    get_er_template_for_agent,
+    generate_triage_response as _generate_triage_response_func,
 )
 from .image_analyzer import analyze_pet_image
 
@@ -108,10 +101,6 @@ Use the category to prioritize relevant search terms and tailor your response.
 - find_nearby_vets: Find veterinary clinics near user location
   - Use when: ER/TODAY risk level, or user asks for vet recommendations
   - Requires: latitude and longitude
-
-- emergency_triage: Combined check + vet finder
-  - Use when: User provides symptoms AND location
-  - More efficient than calling tools separately
 
 ### Pet Information
 - Pet Context: Pet profile (breed, age, conditions) is provided in the context directly.
@@ -314,48 +303,6 @@ def _web_search_wrapper(query: str) -> str:
 
 
 
-def _emergency_triage_wrapper(input_str: str) -> str:
-    """
-    Combined emergency triage and vet finding.
-    Input format: "symptoms | latitude,longitude"
-    Example: "vomiting and lethargy | 37.7749,-122.4194"
-    """
-    try:
-        if "|" not in input_str:
-            return "Error: Please provide input as 'symptoms | latitude,longitude'"
-        
-        symptoms, location = input_str.split("|", 1)
-        symptoms = symptoms.strip()
-        lat, lon = location.strip().split(",")
-        lat, lon = float(lat), float(lon)
-        
-        result = triage_and_recommend(
-            symptoms=symptoms,
-            user_latitude=lat,
-            user_longitude=lon
-        )
-        
-        output = f"TRIAGE RESULT\n"
-        output += f"Severity: {result['severity']}\n\n"
-        
-        if result.get('red_flags'):
-            output += "Red Flags:\n"
-            for flag in result['red_flags']:
-                output += f"- {flag}\n"
-            output += "\n"
-        
-        output += f"Recommendation: {result['recommendation']}\n\n"
-        
-        if result.get('nearby_vets'):
-            output += "NEARBY VETERINARY CLINICS:\n"
-            for i, vet in enumerate(result['nearby_vets'], 1):
-                output += f"{i}. {vet['name']} - {vet.get('distance_km', 'N/A')} km\n"
-        
-        return output
-    except Exception as e:
-        return f"Error in triage: {str(e)}"
-
-
 def _analyze_image_wrapper(image_path: str) -> str:
     """
     Analyze a pet image using GPT-4 Vision.
@@ -384,29 +331,6 @@ def _analyze_image_wrapper(image_path: str) -> str:
     except Exception as e:
         return f"Error analyzing image: {str(e)}"
 
-
-def _generate_triage_wrapper(input_json: str) -> str:
-    """
-    Generate structured triage response.
-    Input: JSON with risk_level, category, reasoning, actions, etc.
-    """
-    return generate_triage_response_for_agent(input_json)
-
-
-def _request_followup_wrapper(missing_info: str) -> str:
-    """
-    Generate follow-up questions when information is missing.
-    Input: Description of what info is missing
-    """
-    return request_followup_for_agent(missing_info)
-
-
-def _get_er_template_wrapper(category: str) -> str:
-    """
-    Get pre-built emergency template for a category.
-    Use when check_red_flags returns is_emergency=True.
-    """
-    return get_er_template_for_agent(category)
 
 
 # ============================================================
@@ -449,16 +373,6 @@ def find_nearby_vets(location_query: str) -> str:
 
 
 @tool
-def emergency_triage(input_str: str) -> str:
-    """Combined emergency check and vet finder - more efficient than calling separately.
-    Use when user provides both symptoms AND location.
-    Input: 'symptoms | latitude,longitude'
-    Example: 'vomiting and lethargy | 37.7749,-122.4194'
-    """
-    return _emergency_triage_wrapper(input_str)
-
-
-@tool
 def web_search_tool(query: str) -> str:
     """Search the web for current pet health information using Google Search.
     Use when:
@@ -482,51 +396,12 @@ def analyze_image(image_path: str) -> str:
     return _analyze_image_wrapper(image_path)
 
 
-@tool
-def get_er_template(category: str) -> str:
-    """Get pre-built emergency response template for a symptom category.
-    Use this IMMEDIATELY when check_red_flags returns is_emergency=True.
-    Input: symptom category string (e.g., 'Urinary & Genital', 'Breathing Issues').
-    Output: Complete ER triage response - no LLM reasoning needed.
-    """
-    return _get_er_template_wrapper(category)
-
-
-@tool
-def request_followup(missing_info: str) -> str:
-    """Generate follow-up questions when critical information is missing.
-    Use when you cannot make an accurate assessment due to missing info.
-    Input: description of what information is missing.
-    Example: 'duration of symptoms, severity of vomiting, presence of blood'
-    """
-    return _request_followup_wrapper(missing_info)
-
-
-@tool
-def generate_triage_response(input_json: str) -> str:
-    """Generate final structured triage response. Use this LAST to format output.
-    Input: JSON with required fields:
-    {"risk_level": "ER|TODAY|SOON|MONITOR", "category": "...",
-    "reasoning": ["..."], "actions": ["..."], "monitoring": ["..."]}
-    """
-    return _generate_triage_wrapper(input_json)
-
-
-# Base tools (for general health questions)
-BASE_TOOLS = [vector_search, check_red_flags, find_nearby_vets, emergency_triage, web_search_tool, analyze_image]
-
-# Triage-specific tools (for structured triage workflow)
-TRIAGE_TOOLS = [get_er_template, request_followup, generate_triage_response]
-
-# Combined tools for general use
-TOOLS = BASE_TOOLS
-
-# Full tools including triage-specific ones
-FULL_TRIAGE_TOOLS = BASE_TOOLS + TRIAGE_TOOLS
+# Tools for PetHealthAgent (ReAct - general Q&A)
+TOOLS = [vector_search, check_red_flags, find_nearby_vets, web_search_tool, analyze_image]
 
 
 # ============================================================
-# Agent Class (Updated for LangGraph)
+# PetHealthAgent Class (ReAct - General Q&A)
 # ============================================================
 
 class PetHealthAgent:
@@ -683,163 +558,72 @@ class PetHealthAgent:
 
 
 # ============================================================
-# TRIAGE AGENT SYSTEM PROMPT
+# Triage Assessment Prompt (for single LLM call in pipeline)
 # ============================================================
 
-TRIAGE_AGENT_SYSTEM_PROMPT = """You are a Pet Health Triage Agent. Your job is to assess pet health concerns and provide structured triage responses.
+TRIAGE_ASSESSMENT_PROMPT = """You are a pet health triage assistant. Based on the provided context, generate a structured triage assessment as JSON.
 
-## CRITICAL WORKFLOW - FOLLOW EXACTLY
+## Output Format (JSON only, no other text)
+{{
+  "risk_level": "TODAY|SOON|MONITOR",
+  "reasoning_summary": ["reason1", "reason2", "reason3"],
+  "recommended_actions": ["action1", "action2"],
+  "what_to_monitor": ["item1", "item2"]
+}}
 
-### MEDICAL HISTORY (If Provided)
-You may receive "Pet Medical History" context.
-- Use this ONLY to identify chronic/recurring issues.
-- If current symptoms match history (e.g. "vomiting again"), consider it a recurring issue (potentially higher risk).
-- DO NOT treat past symptoms as current ones unless the user mentions them again today.
-- This is for CONTEXT only. Focus on the CURRENT description for triage.
+## Rules
+- risk_level MUST be >= {min_severity} (baseline from symptom check)
+- Severity order: ER > TODAY > SOON > MONITOR
+- When in doubt, escalate to higher risk level
+- Never diagnose specific diseases (no "your pet has X")
+- Never recommend specific medications or dosages
+- Max 3 reasoning items, 6 actions, 5 monitoring items
+- Keep each item under 120 characters
 
-### Step 1: ANALYZE IMAGE FIRST (if provided)
-If an image is provided, use `analyze_image` FIRST before anything else.
-
-⚠️ CRITICAL: If the image shows ANY of these, it's an IMMEDIATE EMERGENCY (ER):
-- Blood (anywhere on the pet)
-- Open wounds or lacerations
-- Visible injuries or trauma
-- Pale/white/blue gums
-- Unconscious or collapsed pet
-- Difficulty breathing
-- Swelling/distended abdomen
-
-If image shows emergency signs → use `get_er_template` IMMEDIATELY → DO NOT ask follow-up questions!
-
-### Step 2: Check Red Flags
-Use the `check_red_flags` tool with a JSON string containing ALL available information.
-
-IMPORTANT: You MUST pass a JSON string to check_red_flags, NOT plain text!
-Example format:
-{"symptoms": "vomiting, lethargy", "species": "dog", "breed": "Great Dane", "category": "Stomach Upset", "structured_fields": {}}
-
-If the result shows `IS_EMERGENCY: True` or `ACTION: RETURN_ER_TEMPLATE`:
-→ IMMEDIATELY use `get_er_template` tool with the category
-→ DO NOT use request_followup for emergencies
-→ Return the ER template as your final response
-
-### Step 3: Non-Emergency Assessment
-Only if NOT an emergency:
-- If critical information is missing → use `request_followup` (NEVER use this for emergencies!)
-- If you need medical knowledge → use `vector_search`
-- If location is provided AND urgent → use `find_nearby_vets`
-
-### Step 4: Generate Final Response
-Use `generate_triage_response` tool with:
-- risk_level: "ER" | "TODAY" | "SOON" | "MONITOR"
-- category: the symptom category (infer from symptoms if "Something Else")
-- reasoning: list of reasons for this risk level
-- actions: list of recommended actions
-- monitoring: what to watch for
-
-## NEVER ASK FOLLOW-UP QUESTIONS FOR:
-- Blood visible on pet
-- Any bleeding or wounds
-- Trauma or injury
-- Difficulty breathing
-- Unconscious/collapsed pet
-- These are ALL emergencies - use get_er_template immediately!
-
-## Risk Level Definitions
-- ER: Life-threatening, go to emergency vet NOW
-- TODAY: Serious, see a vet within 24 hours
-- SOON: Moderate, schedule appointment within 2-3 days
-- MONITOR: Low risk, monitor at home, see vet if worsens
-
-## Important Rules
-1. SAFETY FIRST: When in doubt, escalate to higher risk level
-2. NO DIAGNOSIS: Never say "your pet has X disease"
-3. NO MEDICATIONS: Never recommend specific drugs or dosages
-4. STRUCTURED OUTPUT: Always use generate_triage_response for final output
-5. TOOL ORDER: check_red_flags → (get_er_template if ER) → other tools → generate_triage_response
-
-## Available Tools Summary
-- check_red_flags: Check for emergencies (ALWAYS USE FIRST)
-- get_er_template: Get ER response template (use if emergency)
-- request_followup: Generate follow-up questions (if info missing)
-- vector_search: Search medical knowledge base
-- web_search_tool: Search web for current treatments, research, products (use for evolving topics)
-- analyze_image: Analyze pet photos
-- find_nearby_vets: Find veterinary clinics
-- generate_triage_response: Format final response (ALWAYS USE LAST)
-
-## SCOPE RESTRICTIONS (CRITICAL)
-
-6. ONLY Dogs and Cats: You can ONLY assess dogs and cats.
-   - If species is NOT dog or cat, respond with an error message explaining you only support dogs and cats.
-   - Never attempt to triage other animals (birds, reptiles, horses, fish, etc.)
-
-7. Image-Only Requests: When the user provides ONLY an image with no symptom description:
-   - FIRST analyze the image using analyze_image to check for emergencies
-   - If emergency signs detected (blood, wounds, distress) → use get_er_template immediately
-   - If NO emergency signs → use request_followup to ask what specific concern they have
-   - Example: "I can see your pet in the image. What specific symptom or concern brought you to us today?"
-"""
+## Context
+Species: {species}
+Category: {category}
+{pet_profile_section}
+{history_section}
+Symptom Description: {user_description}
+{image_section}
+Red Flag Check Result: severity={severity}, flags={red_flags}
+{knowledge_section}"""
 
 
 # ============================================================
-# PetTriageAgent Class - Specialized for Triage Workflow
+# PetTriageAgent Class (Pipeline - Structured Triage)
 # ============================================================
 
 class PetTriageAgent:
     """
-    Specialized Agent for Pet Health Triage.
+    Pipeline-based triage agent with deterministic flow.
 
-    Unlike PetHealthAgent (general Q&A), this agent:
-    1. Follows a strict triage workflow
-    2. Uses structured output (TriageResponse schema)
-    3. Prioritizes emergency detection
-    4. Works with input/output guardrails
-
-    Usage:
-        agent = PetTriageAgent()
-        result = agent.triage(
-            species="dog",
-            category="Stomach Upset",
-            structured_fields={"vomiting_frequency": "multiple"},
-            user_description="My dog has been vomiting for 3 hours"
-        )
-        print(result["triage_response"])
+    Flow: image analysis → red flag check → (ER template | RAG + LLM assessment)
+    Only one LLM call for non-emergency cases (vs. ReAct's multi-turn loop).
     """
+
+    # Severity ordering for baseline enforcement
+    _SEVERITY_ORDER = {"MONITOR": 0, "SOON": 1, "TODAY": 2, "ER": 3}
+
+    # Emergency keywords for image analysis
+    _IMAGE_EMERGENCY_KEYWORDS = [
+        "blood", "bleeding", "wound", "injury", "trauma", "laceration",
+        "emergency", "immediate", "urgent", "severe"
+    ]
 
     def __init__(
         self,
-        model: str = "gpt-4o",  # Better instruction following
-        temperature: float = 0.3,  # Lower for consistent triage
-        max_iterations: int = 8,
+        model: str = "gpt-4o",
+        temperature: float = 0.3,
+        max_iterations: int = 8,  # kept for interface compatibility
         verbose: bool = True
     ):
-        """
-        Initialize the Triage Agent.
-
-        Args:
-            model: OpenAI model to use
-            temperature: LLM temperature (lower = more consistent)
-            max_iterations: Maximum tool calling iterations
-            verbose: Print agent reasoning steps
-        """
         self.model = model
-        self.temperature = temperature
-        self.max_iterations = max_iterations
         self.verbose = verbose
-
-        # Initialize LLM
         self.llm = ChatOpenAI(
-            model=model,
-            temperature=temperature,
-            api_key=OPENAI_API_KEY
-        )
-
-        # Create agent using LangGraph's create_react_agent with triage tools
-        self.agent = create_react_agent(
-            model=self.llm,
-            tools=FULL_TRIAGE_TOOLS,
-            prompt=TRIAGE_AGENT_SYSTEM_PROMPT,
+            model=model, temperature=temperature, api_key=OPENAI_API_KEY,
+            model_kwargs={"response_format": {"type": "json_object"}}
         )
 
     def triage(
@@ -853,262 +637,227 @@ class PetTriageAgent:
         image_path: str = None,
         latitude: float = None,
         longitude: float = None,
-        triage_history: List[Dict[str, Any]] = None  # New: past triage sessions
+        triage_history: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """
-        Perform triage assessment.
-
-        This is the main entry point for triage. The agent will:
-        1. Check for emergencies
-        2. Gather additional information if needed
-        3. Return a structured TriageResponse
-
-        Args:
-            species: "dog" or "cat"
-            category: Symptom category
-            structured_fields: UI form answers (checkboxes, dropdowns)
-            user_description: Free text description
-            pet_profile: Pet info (name, age, breed, weight)
-            image_base64: Base64 encoded image (optional)
-            image_path: Path to image file (optional)
-            latitude: User latitude for vet finder (optional)
-            longitude: User longitude for vet finder (optional)
-            triage_history: List of past triage session dicts (optional)
-
-        Returns:
-            Dict with assessment results
-        """
+        """Perform triage via deterministic pipeline. Interface unchanged from ReAct version."""
         import json
 
         result = {
-            "success": False,
-            "triage_response": None,
-            "tools_used": [],
-            "is_emergency": False,
-            "raw_output": "",
-            "rag_source_count": 0,
+            "success": False, "triage_response": None, "tools_used": [],
+            "is_emergency": False, "raw_output": "", "rag_source_count": 0,
             "used_web_search": False
         }
-
-        # Build the input message for the agent
-        input_parts = []
-
-        input_parts.append(f"Species: {species}")
-        input_parts.append(f"Symptom Category: {category}")
-
-        if triage_history:
-            history_str = "MEDICAL HISTORY (Past Triage Sessions):\n"
-            for i, session in enumerate(triage_history[:5], 1):  # Limit to 5
-                date = session.get("created_at", "Unknown Date").split("T")[0]
-                risk = session.get("risk_level", "Unknown")
-                cat = session.get("category", "Unknown")
-                desc = session.get("user_description", "No description")[:100]  # Truncate
-                history_str += f"- [{date}] Category: {cat} | Risk: {risk} | Desc: {desc}...\n"
-            input_parts.append(history_str)
-
-        if user_description:
-            input_parts.append(f"CURRENT DESCRIPTION: {user_description}")
-        
-        if pet_profile:
-            profile_str = ", ".join(f"{k}: {v}" for k, v in pet_profile.items() if v)
-            input_parts.append(f"Pet Profile: {profile_str}")
-
-        if structured_fields:
-            # Format structured fields for the agent
-            fields_str = json.dumps(structured_fields, ensure_ascii=False)
-            input_parts.append(f"Structured Fields (from UI form): {fields_str}")
-
-        # Pre-analyze image if provided and add results to input
-        image_analysis_result = None
-        if image_path or image_base64:
-            try:
-                image_source = image_path
-                if image_base64 and not image_path:
-                    # Save base64 to temp file
-                    import tempfile
-                    import base64
-                    image_data = base64.b64decode(image_base64)
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
-                        f.write(image_data)
-                        image_source = f.name
-                
-                from .image_analyzer import analyze_pet_image
-                image_analysis_result = analyze_pet_image(image_source, user_question=user_description)
-                image_desc = image_analysis_result.get("description", "")
-                
-                # Add image analysis to input - make it VERY clear if emergency
-                input_parts.append("")
-                input_parts.append("=== IMAGE ANALYSIS RESULTS ===")
-                input_parts.append(image_desc)
-                input_parts.append("=== END IMAGE ANALYSIS ===")
-                
-                # Check for emergency keywords in image analysis
-                image_lower = image_desc.lower()
-                emergency_in_image = any(kw in image_lower for kw in 
-                    ["blood", "bleeding", "wound", "injury", "trauma", "laceration", 
-                     "emergency", "er", "immediate", "urgent", "severe"])
-                
-                if emergency_in_image:
-                    input_parts.append("")
-                    input_parts.append("⚠️ CRITICAL: Image shows BLOOD/INJURY - this is an EMERGENCY!")
-                    input_parts.append("→ You MUST use get_er_template tool immediately!")
-                    input_parts.append("→ Do NOT ask follow-up questions!")
-                    input_parts.append("→ Do NOT use request_followup!")
-                    result["is_emergency"] = True  # Mark as emergency from image
-                
-                # Track image analysis as a tool used
-                result["tools_used"].append({
-                    "tool": "analyze_image",
-                    "input": "pre-analysis of uploaded image"
-                })
-                    
-                # Clean up temp file if created
-                if image_base64 and not image_path and image_source:
-                    import os
-                    try:
-                        os.unlink(image_source)
-                    except:
-                        pass
-                        
-            except Exception as e:
-                input_parts.append(f"Image analysis failed: {str(e)}")
-
-        if latitude and longitude:
-            input_parts.append(f"Location: {latitude},{longitude}")
-
-        # Add instruction
-        input_parts.append("")
-        input_parts.append("=== INSTRUCTIONS ===")
-        input_parts.append("1. If image shows blood/injury/emergency → use get_er_template IMMEDIATELY")
-        input_parts.append("2. Check for emergencies using check_red_flags")
-        input_parts.append("3. If emergency, use get_er_template and return immediately")
-        input_parts.append("4. NEVER use request_followup for blood, injuries, or emergencies")
-        input_parts.append("5. Otherwise, use generate_triage_response")
-
-        full_input = "\n".join(input_parts)
+        breed = pet_profile.get("breed") if pet_profile else None
 
         try:
-            # Run the agent with LangGraph
-            messages = [HumanMessage(content=full_input)]
-            agent_result = self.agent.invoke({"messages": messages})
+            # ----------------------------------------------------------
+            # Step 1: Image analysis (if provided)
+            # ----------------------------------------------------------
+            image_desc = ""
+            if image_path or image_base64:
+                image_desc = self._analyze_image(image_base64, image_path, user_description)
+                result["tools_used"].append({"tool": "analyze_image", "input": "uploaded image"})
 
-            # Extract the final response and tool usage from messages
-            output_messages = agent_result.get("messages", [])
-            final_output = ""
-            tool_calls = []
+                if self._is_image_emergency(image_desc):
+                    if self.verbose:
+                        print("  [Pipeline] Image emergency detected → ER template")
+                    return self._build_er_result(
+                        result, category, ["Blood/injury visible in image"],
+                        ["Image shows blood or injury requiring immediate veterinary attention"]
+                    )
 
-            for msg in output_messages:
-                # Check for tool calls first (AIMessage with tool_calls often has empty content)
-                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        tool_calls.append({
-                            "tool": tc.get("name", "unknown"),
-                            "input": str(tc.get("args", {}))[:200]
-                        })
-                # Then check for final AI response (has content, no tool_call_id)
-                elif hasattr(msg, 'content') and msg.content and not hasattr(msg, 'tool_call_id'):
-                    # This is the final AI response (not a tool result)
-                    final_output = msg.content
+            # ----------------------------------------------------------
+            # Step 2: Check red flags (rule-based, always runs)
+            # ----------------------------------------------------------
+            red_flag_result = _check_red_flags_func(
+                symptoms=user_description,
+                pet_species=species,
+                pet_breed=breed,
+                structured_fields=structured_fields or {},
+                category=category
+            )
+            result["tools_used"].append({"tool": "check_red_flags", "input": user_description[:200]})
 
-            result["raw_output"] = final_output
-            result["success"] = True
-            result["tools_used"] = tool_calls
+            if self.verbose:
+                print(f"  [Pipeline] Red flags: severity={red_flag_result['severity']}, "
+                      f"is_emergency={red_flag_result['is_emergency']}")
 
-            if self.verbose and tool_calls:
-                print(f"  Agent used {len(tool_calls)} tools:")
-                for tc in tool_calls:
-                    print(f"    - {tc['tool']}")
+            if red_flag_result["is_emergency"]:
+                return self._build_er_result(
+                    result, category,
+                    red_flag_result.get("red_flags", []),
+                    [red_flag_result.get("recommendation", "Emergency detected")]
+                )
 
-            # Extract triage response from tool messages
-            # Look for JSON with risk_level in ToolMessages (from get_er_template or generate_triage_response)
-            triage_response = None
-            for msg in output_messages:
-                if 'ToolMessage' in type(msg).__name__ and msg.content:
-                    try:
-                        parsed = json.loads(msg.content)
-                        if isinstance(parsed, dict) and 'risk_level' in parsed:
-                            # Found a valid triage response from tools
-                            triage_response = parsed
-                            if self.verbose:
-                                print(f"  Found triage response in tool output: risk_level={parsed.get('risk_level')}")
-                    except json.JSONDecodeError:
-                        continue
-
-            # Extract source count from vector_search tool output
-            rag_source_count = 0
-            used_web_search = False
-            for msg in output_messages:
-                if 'ToolMessage' in type(msg).__name__ and msg.content:
-                    content = msg.content
-                    # Check for RAG sources pattern: "📚 Sources (X documents)"
-                    import re
-                    source_match = re.search(r'Sources \((\d+) documents\)', content)
-                    if source_match:
-                        rag_source_count = int(source_match.group(1))
-                    # Check if web search was used
-                    if 'Web Search Result' in content or 'search results' in content.lower():
-                        used_web_search = True
-            
-            result["rag_source_count"] = rag_source_count
-            result["used_web_search"] = used_web_search
-
-            if triage_response:
-                result["triage_response"] = triage_response
-            else:
-                # Fallback: try to extract JSON from the final AI output
-                raw_output = result["raw_output"]
+            # ----------------------------------------------------------
+            # Step 3: Knowledge search (RAG)
+            # ----------------------------------------------------------
+            knowledge = ""
+            if user_description:
                 try:
-                    import re
-                    json_match = re.search(r'\{[^{}]*"risk_level"[^{}]*\}', raw_output, re.DOTALL)
-                    if json_match:
-                        result["triage_response"] = json.loads(json_match.group())
-                    else:
-                        result["triage_response"] = json.loads(raw_output)
-                except json.JSONDecodeError:
-                    # If we can't parse JSON, create a basic response from the text
-                    result["triage_response"] = {
-                        "risk_level": "TODAY",
-                        "category": category,
-                        "reasoning_summary": [raw_output[:200] if raw_output else "Unable to parse response"],
-                        "recommended_actions": ["Contact your veterinarian for evaluation"],
-                        "what_to_monitor": [],
-                        "disclaimer": "This is not a diagnosis. Seek veterinary care if concerned."
-                    }
+                    answer, sources = ask(user_description)
+                    knowledge = answer
+                    result["rag_source_count"] = len(sources)
+                    result["tools_used"].append({"tool": "vector_search", "input": user_description[:200]})
+                    if self.verbose:
+                        print(f"  [Pipeline] RAG search: {len(sources)} sources")
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  [Pipeline] RAG search failed: {e}")
 
-            # Check if this was an emergency
-            result["is_emergency"] = result["triage_response"].get("risk_level") == "ER"
+            # ----------------------------------------------------------
+            # Step 4: Single LLM call for assessment
+            # ----------------------------------------------------------
+            triage_response = self._assess(
+                species=species, category=category,
+                user_description=user_description,
+                pet_profile=pet_profile,
+                structured_fields=structured_fields,
+                triage_history=triage_history,
+                red_flag_result=red_flag_result,
+                knowledge=knowledge,
+                image_desc=image_desc
+            )
+            result["tools_used"].append({"tool": "llm_assessment", "input": category})
+
+            result["success"] = True
+            result["triage_response"] = triage_response
+            result["is_emergency"] = triage_response.get("risk_level") == "ER"
+
+            if self.verbose:
+                print(f"  [Pipeline] Assessment complete: risk_level={triage_response.get('risk_level')}")
 
         except Exception as e:
-            result["success"] = False
-            result["error"] = str(e)
             if self.verbose:
-                print(f"  Agent error: {e}")
-            # Return safe fallback
-            result["triage_response"] = {
-                "risk_level": "TODAY",
-                "category": category,
-                "reasoning_summary": ["Unable to complete assessment"],
-                "recommended_actions": [
-                    "Contact your veterinarian for evaluation",
-                    "Monitor your pet closely"
-                ],
-                "what_to_monitor": ["Any worsening symptoms"],
-                "disclaimer": "This is not a diagnosis. Seek veterinary care if concerned."
-            }
+                print(f"  [Pipeline] Error: {e}")
+            result["success"] = True
+            result["triage_response"] = self._fallback_response(category)
 
         return result
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _analyze_image(self, image_base64: str, image_path: str, user_description: str) -> str:
+        """Analyze image and return description text."""
+        import tempfile, base64
+        image_source = image_path
+        temp_path = None
+        try:
+            if image_base64 and not image_path:
+                image_data = base64.b64decode(image_base64)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as f:
+                    f.write(image_data)
+                    image_source = temp_path = f.name
+            result = analyze_pet_image(image_source, user_question=user_description)
+            return result.get("description", "") or result.get("analysis", "")
+        except Exception as e:
+            if self.verbose:
+                print(f"  [Pipeline] Image analysis failed: {e}")
+            return ""
+        finally:
+            if temp_path:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+
+    def _is_image_emergency(self, image_desc: str) -> bool:
+        """Check if image analysis indicates emergency."""
+        desc_lower = image_desc.lower()
+        return any(kw in desc_lower for kw in self._IMAGE_EMERGENCY_KEYWORDS)
+
+    def _build_er_result(self, result: Dict, category: str,
+                         red_flags: List[str], reasoning: List[str]) -> Dict:
+        """Build and return an ER result using the template."""
+        er_response = _get_er_template_func(category)
+        er_response["red_flags"] = red_flags[:5]
+        er_response["reasoning_summary"] = reasoning[:3]
+        result["tools_used"].append({"tool": "get_er_template", "input": category})
+        result.update({"success": True, "triage_response": er_response, "is_emergency": True})
+        return result
+
+    def _assess(self, species: str, category: str, user_description: str,
+                pet_profile: Dict, structured_fields: Dict,
+                triage_history: List, red_flag_result: Dict,
+                knowledge: str, image_desc: str) -> Dict:
+        """Single LLM call to generate structured triage assessment."""
+        import json
+
+        # Build context sections
+        profile_section = ""
+        if pet_profile:
+            profile_section = "Pet Profile: " + ", ".join(
+                f"{k}: {v}" for k, v in pet_profile.items() if v)
+
+        history_section = ""
+        if triage_history:
+            lines = []
+            for s in triage_history[:5]:
+                date = s.get("created_at", "?").split("T")[0]
+                lines.append(f"- [{date}] {s.get('category', '?')} | "
+                             f"Risk: {s.get('risk_level', '?')} | {s.get('user_description', '')[:80]}")
+            history_section = "Medical History:\n" + "\n".join(lines)
+
+        image_section = f"Image Analysis: {image_desc}" if image_desc else ""
+        knowledge_section = f"Knowledge Base:\n{knowledge}" if knowledge else ""
+
+        min_severity = red_flag_result.get("severity", "MONITOR")
+        prompt = TRIAGE_ASSESSMENT_PROMPT.format(
+            species=species, category=category,
+            user_description=user_description or "(no description)",
+            pet_profile_section=profile_section,
+            history_section=history_section,
+            image_section=image_section,
+            severity=min_severity,
+            red_flags=red_flag_result.get("red_flags", []),
+            knowledge_section=knowledge_section,
+            min_severity=min_severity
+        )
+
+        # Single LLM call with JSON mode
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        raw = response.content
+        parsed = json.loads(raw)
+
+        # Enforce minimum severity from red flag check
+        llm_level = parsed.get("risk_level", "TODAY")
+        if self._SEVERITY_ORDER.get(llm_level, 0) < self._SEVERITY_ORDER.get(min_severity, 0):
+            parsed["risk_level"] = min_severity
+
+        # Format through generate_triage_response for consistent schema
+        return _generate_triage_response_func(
+            risk_level=parsed.get("risk_level", "TODAY"),
+            category=category,
+            red_flags=red_flag_result.get("red_flags"),
+            reasoning=parsed.get("reasoning_summary"),
+            actions=parsed.get("recommended_actions"),
+            monitoring=parsed.get("what_to_monitor"),
+        )
+
+    @staticmethod
+    def _fallback_response(category: str) -> Dict:
+        """Safe fallback when pipeline fails."""
+        return {
+            "risk_level": "TODAY",
+            "category": category,
+            "reasoning_summary": ["Unable to complete assessment"],
+            "recommended_actions": ["Contact your veterinarian for evaluation",
+                                    "Monitor your pet closely"],
+            "what_to_monitor": ["Any worsening symptoms"],
+            "disclaimer": "This is not a diagnosis. Seek veterinary care if concerned."
+        }
 
     def get_tool_usage_summary(self, result: Dict[str, Any]) -> str:
         """Get a summary of which tools were used."""
         tools = result.get("tools_used", [])
         if not tools:
             return "No tools were used."
-
-        summary = "Tools used:\n"
-        for i, tool_info in enumerate(tools, 1):
-            summary += f"{i}. {tool_info['tool']}({tool_info['input'][:50]}...)\n"
-
-        return summary
+        return "Tools used:\n" + "".join(
+            f"{i}. {t['tool']}({t['input'][:50]}...)\n"
+            for i, t in enumerate(tools, 1)
+        )
 
 
 # ============================================================

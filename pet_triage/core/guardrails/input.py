@@ -27,7 +27,7 @@ from shared.constants import (
     INPUT_LIMITS,
 )
 from shared.red_flags import check_immediate_er
-from llm_setup import get_er_template
+from core.llm_setup import get_er_template
 
 
 # ============================================================================
@@ -1038,8 +1038,19 @@ class InputGuardrails:
         within_limit, sanitized_text = self.quality.check_text_length(sanitized_text)
         if not within_limit:
             result["warnings"].append("Input text was truncated")
+
+        # ===== Step 1.5: Injection detection (before off-topic check) =====
+        is_injection, pattern = self.safety.detect_injection(sanitized_text)
+        if is_injection:
+            result["warnings"].append("Unusual input pattern detected and ignored")
+            sanitized_text = self.safety.sanitize_for_safety(sanitized_text)
+
+        is_unsafe, pattern = self.safety.detect_unsafe_request(sanitized_text)
+        if is_unsafe:
+            result["warnings"].append("Note: We only provide triage guidance, not medication dosing or diagnosis")
+
         result["sanitized_text"] = sanitized_text
-        
+
         # ===== Step 2: Scope validation =====
         # Check species
         passed, error = self.scope.check_species(species)
@@ -1094,18 +1105,7 @@ class InputGuardrails:
             result["er_response"] = er_response
             return result
         
-        # ===== Step 5: Safety detection =====
-        is_injection, pattern = self.safety.detect_injection(sanitized_text)
-        if is_injection:
-            result["warnings"].append("Unusual input pattern detected and ignored")
-            sanitized_text = self.safety.sanitize_for_safety(sanitized_text)
-            result["sanitized_text"] = sanitized_text
-        
-        is_unsafe, pattern = self.safety.detect_unsafe_request(sanitized_text)
-        if is_unsafe:
-            result["warnings"].append("Note: We only provide triage guidance, not medication dosing or diagnosis")
-        
-        # ===== Step 6: Image validation (if provided) =====
+        # ===== Step 5: Image validation (if provided) =====
         if image_size is not None and image_type is not None:
             passed, error = self.quality.validate_image(image_size, image_type)
             if not passed:
